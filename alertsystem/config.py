@@ -8,8 +8,10 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production-!@#$%')
 
     # -----------------------------------------------------------------
-    # MySQL connection settings
+    # Database connection settings
     # -----------------------------------------------------------------
+    DB_TYPE = os.environ.get('DB_TYPE', 'auto')  # 'auto', 'mysql', or 'sqlite'
+    SQLITE_PATH = os.environ.get('SQLITE_PATH', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cyberattack_detection.db'))
     DB_HOST = os.environ.get('DB_HOST', 'localhost')
     DB_PORT = int(os.environ.get('DB_PORT', 3306))
     DB_NAME = os.environ.get('DB_NAME', 'cyberattack_detection')

@@ -1,136 +1,285 @@
 import hashlib
+import os
+import re
+import sqlite3
 from datetime import datetime
 
-import mysql.connector
 from werkzeug.security import generate_password_hash
-
 from config import Config
 
+try:
+    import mysql.connector
+    HAS_MYSQL = True
+except ImportError:
+    HAS_MYSQL = False
 
-# ---------------------------------------------------------------------------
-# Connection helper
-# ---------------------------------------------------------------------------
 
-def get_db_connection(dictionary: bool = True) -> mysql.connector.MySQLConnection:
-    """Return a new MySQL connection using settings from Config."""
-    conn = mysql.connector.connect(
-        host=Config.DB_HOST,
-        port=Config.DB_PORT,
-        database=Config.DB_NAME,
-        user=Config.DB_USER,
-        password=Config.DB_PASSWORD,
-    )
-    # mysql-connector-python doesn't have a single 'dictionary' kwarg at
-    # connect(); callers should open cursors with cursor(dictionary=True).
-    # We store the preference as an attribute for convenience.
-    conn._use_dict_cursor = dictionary  # type: ignore[attr-defined]
-    return conn
+def _parse_val(val):
+    if isinstance(val, str) and len(val) >= 19 and val[4] == '-' and val[7] == '-':
+        try:
+            return datetime.fromisoformat(val)
+        except Exception:
+            pass
+    return val
+
+
+class Row(dict):
+    """Dictionary-like row that also allows index-based access and .items()."""
+    def __init__(self, cols, values):
+        parsed = [_parse_val(v) for v in values]
+        super().__init__(zip(cols, parsed))
+        self._values = tuple(parsed)
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self._values[key]
+        return super().__getitem__(key)
+
+
+class SQLiteCursorWrapper:
+    def __init__(self, cursor, dictionary=True):
+        self.cursor = cursor
+        self.dictionary = dictionary
+
+    def _convert_sql(self, sql):
+        # Convert %s placeholders to SQLite ? placeholders
+        return re.sub(r'(?<!%)(%s)', '?', sql)
+
+    def execute(self, sql, params=None):
+        sql = self._convert_sql(sql)
+        if params is None:
+            return self.cursor.execute(sql)
+        return self.cursor.execute(sql, params)
+
+    def executemany(self, sql, params):
+        sql = self._convert_sql(sql)
+        return self.cursor.executemany(sql, params)
+
+    def fetchone(self):
+        row = self.cursor.fetchone()
+        if row is None:
+            return None
+        cols = [d[0] for d in self.cursor.description]
+        return Row(cols, row) if self.dictionary else row
+
+    def fetchall(self):
+        rows = self.cursor.fetchall()
+        if not rows:
+            return []
+        cols = [d[0] for d in self.cursor.description]
+        return [Row(cols, r) for r in rows] if self.dictionary else rows
+
+    @property
+    def lastrowid(self):
+        return self.cursor.lastrowid
+
+    @property
+    def rowcount(self):
+        return self.cursor.rowcount
+
+    def close(self):
+        self.cursor.close()
+
+
+class SQLiteConnectionWrapper:
+    def __init__(self, conn, dictionary=True):
+        self._conn = conn
+        self._use_dict_cursor = dictionary
+
+    def cursor(self, dictionary=None):
+        use_dict = self._use_dict_cursor if dictionary is None else dictionary
+        return SQLiteCursorWrapper(self._conn.cursor(), dictionary=use_dict)
+
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
+
+
+def _get_sqlite_connection(dictionary: bool = True):
+    db_path = Config.SQLITE_PATH
+    conn = sqlite3.connect(db_path, check_same_thread=False)
+    conn.create_function("NOW", 0, lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    return SQLiteConnectionWrapper(conn, dictionary=dictionary)
+
+
+def get_db_connection(dictionary: bool = True):
+    """Return a database connection (MySQL or fallback to SQLite)."""
+    if Config.DB_TYPE != "sqlite" and HAS_MYSQL:
+        try:
+            conn = mysql.connector.connect(
+                host=Config.DB_HOST,
+                port=Config.DB_PORT,
+                database=Config.DB_NAME,
+                user=Config.DB_USER,
+                password=Config.DB_PASSWORD,
+            )
+            conn._use_dict_cursor = dictionary
+            return conn
+        except Exception as e:
+            if Config.DB_TYPE == "mysql":
+                raise e
+            # Auto fallback to SQLite
+            return _get_sqlite_connection(dictionary=dictionary)
+
+    return _get_sqlite_connection(dictionary=dictionary)
 
 
 def _cursor(conn):
     """Return a cursor that respects the dictionary setting on *conn*."""
-    use_dict = getattr(conn, '_use_dict_cursor', True)
+    use_dict = getattr(conn, "_use_dict_cursor", True)
     return conn.cursor(dictionary=use_dict)
 
-
-# ---------------------------------------------------------------------------
-# Schema creation
-# ---------------------------------------------------------------------------
 
 def init_db() -> None:
     """Create all required tables if they do not already exist."""
     conn = get_db_connection(dictionary=False)
     cur = conn.cursor()
 
-    # users ----------------------------------------------------------------
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id            INT          NOT NULL AUTO_INCREMENT,
-            username      VARCHAR(100) NOT NULL,
-            password_hash VARCHAR(255) NOT NULL,
-            created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            UNIQUE KEY uq_users_username (username)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    """)
+    if isinstance(conn, SQLiteConnectionWrapper):
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id            INTEGER      PRIMARY KEY AUTOINCREMENT,
+                username      VARCHAR(100) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
 
-    # agents ---------------------------------------------------------------
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS agents (
-            id               INT          NOT NULL AUTO_INCREMENT,
-            agent_name       VARCHAR(100) NOT NULL,
-            agent_token_hash VARCHAR(255) NOT NULL,
-            ip_address       VARCHAR(45)  DEFAULT NULL,
-            status           VARCHAR(20)  NOT NULL DEFAULT 'offline',
-            last_seen        TIMESTAMP    NULL DEFAULT NULL,
-            PRIMARY KEY (id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS agents (
+                id               INTEGER      PRIMARY KEY AUTOINCREMENT,
+                agent_name       VARCHAR(100) NOT NULL,
+                agent_token_hash VARCHAR(255) NOT NULL,
+                ip_address       VARCHAR(45)  DEFAULT NULL,
+                status           VARCHAR(20)  NOT NULL DEFAULT 'offline',
+                last_seen        TIMESTAMP    NULL DEFAULT NULL
+            );
+        """)
 
-    # network_events -------------------------------------------------------
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS network_events (
-            id               INT         NOT NULL AUTO_INCREMENT,
-            agent_id         INT         DEFAULT NULL,
-            source_ip        VARCHAR(45) DEFAULT NULL,
-            destination_ip   VARCHAR(45) DEFAULT NULL,
-            protocol         VARCHAR(20) DEFAULT NULL,
-            destination_port INT         DEFAULT NULL,
-            event_type       VARCHAR(50) DEFAULT NULL,
-            timestamp        TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            KEY idx_ne_agent_id  (agent_id),
-            KEY idx_ne_source_ip (source_ip),
-            KEY idx_ne_timestamp (timestamp),
-            CONSTRAINT fk_ne_agent FOREIGN KEY (agent_id)
-                REFERENCES agents (id) ON DELETE SET NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS network_events (
+                id               INTEGER     PRIMARY KEY AUTOINCREMENT,
+                agent_id         INTEGER     DEFAULT NULL,
+                source_ip        VARCHAR(45) DEFAULT NULL,
+                destination_ip   VARCHAR(45) DEFAULT NULL,
+                protocol         VARCHAR(20) DEFAULT NULL,
+                destination_port INTEGER     DEFAULT NULL,
+                event_type       VARCHAR(50) DEFAULT NULL,
+                timestamp        TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (agent_id) REFERENCES agents (id) ON DELETE SET NULL
+            );
+        """)
 
-    # attacks --------------------------------------------------------------
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS attacks (
-            id          INT          NOT NULL AUTO_INCREMENT,
-            source_ip   VARCHAR(45)  DEFAULT NULL,
-            attack_type VARCHAR(100) DEFAULT NULL,
-            severity    VARCHAR(20)  DEFAULT NULL,
-            description TEXT         DEFAULT NULL,
-            agent_id    INT          DEFAULT NULL,
-            detected_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            KEY idx_att_agent_id   (agent_id),
-            KEY idx_att_source_ip  (source_ip),
-            KEY idx_att_attack_type(attack_type),
-            CONSTRAINT fk_att_agent FOREIGN KEY (agent_id)
-                REFERENCES agents (id) ON DELETE SET NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS attacks (
+                id          INTEGER      PRIMARY KEY AUTOINCREMENT,
+                source_ip   VARCHAR(45)  DEFAULT NULL,
+                attack_type VARCHAR(100) DEFAULT NULL,
+                severity    VARCHAR(20)  DEFAULT NULL,
+                description TEXT         DEFAULT NULL,
+                agent_id    INTEGER      DEFAULT NULL,
+                detected_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (agent_id) REFERENCES agents (id) ON DELETE SET NULL
+            );
+        """)
 
-    # alerts ---------------------------------------------------------------
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS alerts (
-            id         INT         NOT NULL AUTO_INCREMENT,
-            attack_id  INT         DEFAULT NULL,
-            message    TEXT        DEFAULT NULL,
-            severity   VARCHAR(20) DEFAULT NULL,
-            status     VARCHAR(20) NOT NULL DEFAULT 'new',
-            created_at TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            KEY idx_al_attack_id (attack_id),
-            KEY idx_al_status    (status),
-            CONSTRAINT fk_al_attack FOREIGN KEY (attack_id)
-                REFERENCES attacks (id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS alerts (
+                id         INTEGER     PRIMARY KEY AUTOINCREMENT,
+                attack_id  INTEGER     DEFAULT NULL,
+                message    TEXT        DEFAULT NULL,
+                severity   VARCHAR(20) DEFAULT NULL,
+                status     VARCHAR(20) NOT NULL DEFAULT 'new',
+                created_at TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (attack_id) REFERENCES attacks (id) ON DELETE CASCADE
+            );
+        """)
+    else:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id            INT          NOT NULL AUTO_INCREMENT,
+                username      VARCHAR(100) NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY uq_users_username (username)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS agents (
+                id               INT          NOT NULL AUTO_INCREMENT,
+                agent_name       VARCHAR(100) NOT NULL,
+                agent_token_hash VARCHAR(255) NOT NULL,
+                ip_address       VARCHAR(45)  DEFAULT NULL,
+                status           VARCHAR(20)  NOT NULL DEFAULT 'offline',
+                last_seen        TIMESTAMP    NULL DEFAULT NULL,
+                PRIMARY KEY (id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS network_events (
+                id               INT         NOT NULL AUTO_INCREMENT,
+                agent_id         INT         DEFAULT NULL,
+                source_ip        VARCHAR(45) DEFAULT NULL,
+                destination_ip   VARCHAR(45) DEFAULT NULL,
+                protocol         VARCHAR(20) DEFAULT NULL,
+                destination_port INT         DEFAULT NULL,
+                event_type       VARCHAR(50) DEFAULT NULL,
+                timestamp        TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY idx_ne_agent_id  (agent_id),
+                KEY idx_ne_source_ip (source_ip),
+                KEY idx_ne_timestamp (timestamp),
+                CONSTRAINT fk_ne_agent FOREIGN KEY (agent_id)
+                    REFERENCES agents (id) ON DELETE SET NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS attacks (
+                id          INT          NOT NULL AUTO_INCREMENT,
+                source_ip   VARCHAR(45)  DEFAULT NULL,
+                attack_type VARCHAR(100) DEFAULT NULL,
+                severity    VARCHAR(20)  DEFAULT NULL,
+                description TEXT         DEFAULT NULL,
+                agent_id    INT          DEFAULT NULL,
+                detected_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY idx_att_agent_id   (agent_id),
+                KEY idx_att_source_ip  (source_ip),
+                KEY idx_att_attack_type(attack_type),
+                CONSTRAINT fk_att_agent FOREIGN KEY (agent_id)
+                    REFERENCES agents (id) ON DELETE SET NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS alerts (
+                id         INT         NOT NULL AUTO_INCREMENT,
+                attack_id  INT         DEFAULT NULL,
+                message    TEXT        DEFAULT NULL,
+                severity   VARCHAR(20) DEFAULT NULL,
+                status     VARCHAR(20) NOT NULL DEFAULT 'new',
+                created_at TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY idx_al_attack_id (attack_id),
+                KEY idx_al_status    (status),
+                CONSTRAINT fk_al_attack FOREIGN KEY (attack_id)
+                    REFERENCES attacks (id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
 
     conn.commit()
     cur.close()
     conn.close()
 
-
-# ---------------------------------------------------------------------------
-# Seed data
-# ---------------------------------------------------------------------------
 
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
@@ -149,17 +298,13 @@ def seed_data() -> None:
         conn.close()
         return
 
-    # ------------------------------------------------------------------
     # Users
-    # ------------------------------------------------------------------
     cur.execute(
         "INSERT INTO users (username, password_hash) VALUES (%s, %s)",
         ('admin', generate_password_hash('admin123')),
     )
 
-    # ------------------------------------------------------------------
     # Agents
-    # ------------------------------------------------------------------
     agents = [
         ('Agent-Alpha', _sha256('token-alpha'), '192.168.1.10', 'online',
          datetime(2024, 1, 15, 10, 30, 0)),
@@ -174,11 +319,8 @@ def seed_data() -> None:
         agents,
     )
 
-    # ------------------------------------------------------------------
-    # Network events (20 rows)
-    # ------------------------------------------------------------------
+    # Network events
     network_events = [
-        # (agent_id, source_ip, destination_ip, protocol, dst_port, event_type, timestamp)
         (1, '10.0.0.5',   '192.168.1.10', 'TCP',  22,   'CONNECTION',       datetime(2024, 1, 15, 8,  0,  0)),
         (1, '10.0.0.5',   '192.168.1.10', 'TCP',  23,   'CONNECTION',       datetime(2024, 1, 15, 8,  0,  1)),
         (1, '10.0.0.5',   '192.168.1.10', 'TCP',  80,   'CONNECTION',       datetime(2024, 1, 15, 8,  0,  2)),
@@ -208,9 +350,7 @@ def seed_data() -> None:
         network_events,
     )
 
-    # ------------------------------------------------------------------
-    # Attacks (5 rows)
-    # ------------------------------------------------------------------
+    # Attacks
     attacks = [
         ('10.0.0.5',    'PORT_SCAN',    'high',   'Source IP scanned 12 ports within 60 seconds.',               1, datetime(2024, 1, 15,  8,  1, 0)),
         ('172.16.0.3',  'BRUTE_FORCE',  'critical','5 failed SSH login attempts detected within 60 seconds.',     2, datetime(2024, 1, 15,  9,  5, 45)),
@@ -225,9 +365,7 @@ def seed_data() -> None:
         attacks,
     )
 
-    # ------------------------------------------------------------------
-    # Alerts (5 rows, one per attack; attack IDs are 1-5 after insert)
-    # ------------------------------------------------------------------
+    # Alerts
     alerts = [
         (1, 'Port scan detected from 10.0.0.5 on Agent-Alpha.',           'high',     'new'),
         (2, 'Brute-force SSH attack from 172.16.0.3 on Agent-Beta.',       'critical', 'new'),

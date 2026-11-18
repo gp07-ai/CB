@@ -263,8 +263,8 @@
 {% block scripts %}
 <script>
 // ── CHART DATA FROM JINJA ──
-const attackDistribution = {{ attack_distribution | tojson | default('[]') }};
-const activityData       = {{ activity_data | tojson | default('[]') }};
+const attackDistribution = {{ (attack_distribution | default([])) | tojson }};
+const activityData       = {{ (activity_data | default([])) | tojson }};
 
 // ── CHART DEFAULTS ──
 Chart.defaults.color = '#6c8aad';

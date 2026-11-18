@@ -67,10 +67,19 @@ def _get_dashboard_stats():
     cursor.close()
     conn.close()
 
+    class DateTimeStr(str):
+        def strftime(self, fmt):
+            try:
+                return datetime.fromisoformat(self).strftime(fmt)
+            except Exception:
+                return self
+
     # Convert datetime objects for JSON serialization
     def serialize(obj):
         if hasattr(obj, 'isoformat'):
-            return obj.isoformat()
+            return DateTimeStr(obj.isoformat())
+        if isinstance(obj, str) and len(obj) >= 19 and obj[4] == '-' and obj[7] == '-':
+            return DateTimeStr(obj)
         return obj
 
     def serialize_row(row):
@@ -86,6 +95,7 @@ def _get_dashboard_stats():
         'attack_distribution': [serialize_row(r) for r in attack_distribution],
         'agent_status': [serialize_row(r) for r in agent_status],
         'recent_alerts': [serialize_row(r) for r in recent_alerts],
+        'activity_data': [],
     }
 
 
@@ -102,7 +112,7 @@ def index():
             'agent_status': [], 'recent_alerts': [],
             'error': str(e)
         }
-    return render_template('dashboard.html', **stats)
+    return render_template('dashboard.html', stats=stats, **stats)
 
 
 @dashboard_bp.route('/stats')

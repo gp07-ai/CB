@@ -7,3 +7,6 @@ venv/
 ENV/
 .vscode/
 .idea/
+*.db
+*.sqlite
+*.sqlite3

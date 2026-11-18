@@ -1,12 +1,13 @@
 from datetime import datetime, timedelta
 from database import get_db_connection
 from config import Config
-from detection.port_scan import detect_port_scan
-from detection.brute_force import detect_brute_force
-from detection.dos_detection import detect_dos
 
 def analyze_event(event_data, agent_id):
     """Main analysis function - runs all detection rules on a new event."""
+    from detection.port_scan import detect_port_scan
+    from detection.brute_force import detect_brute_force
+    from detection.dos_detection import detect_dos
+
     alerts_generated = []
     source_ip = event_data.get('source_ip')
     event_type = event_data.get('event_type', '')
