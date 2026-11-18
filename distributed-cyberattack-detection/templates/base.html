@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Dashboard{% endblock %} — CyberDetect</title>
+
+    <!-- Bootstrap 5 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- FontAwesome 6 -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <style>
+        :root {
+            --cyber-green:   #00ff88;
+            --cyber-cyan:    #00d4ff;
+            --cyber-blue:    #0d6efd;
+            --sidebar-bg:    #060c18;
+            --sidebar-width: 240px;
+            --topbar-height: 56px;
+            --body-bg:       #0a0e1a;
+            --card-bg:       #0f1626;
+            --border-color:  #1a2d4a;
+            --text-muted:    #6c8aad;
+            --text-light:    #c8d8f0;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--body-bg);
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+
+        /* ─── SIDEBAR ─── */
+        #sidebar {
+            position: fixed;
+            top: 0; left: 0;
+            width: var(--sidebar-width);
+            height: 100vh;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            z-index: 1040;
+            transition: transform 0.3s;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .sidebar-logo {
+            padding: 1.2rem 1rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            text-align: center;
+        }
+
+        .sidebar-logo .logo-icon {
+            font-size: 2rem;
+            color: var(--cyber-cyan);
+            filter: drop-shadow(0 0 8px var(--cyber-cyan));
+            display: block;
+            margin-bottom: 0.4rem;
+        }
+
+        .sidebar-logo .logo-text {
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #8ba8cc;
+            letter-spacing: 0.5px;
+            line-height: 1.4;
+            text-transform: uppercase;
+        }
+
+        .sidebar-logo .logo-sub {
+            font-size: 0.62rem;
+            color: #3d5a7a;
+            letter-spacing: 1px;
+        }
+
+        .sidebar-section {
+            font-size: 0.6rem;
+            font-weight: 700;
+            color: #2d4060;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            padding: 1rem 1rem 0.3rem;
+        }
+
+        .nav-sidebar {
+            list-style: none;
+            padding: 0.3rem 0;
+            margin: 0;
+            flex: 1;
+        }
+
+        .nav-sidebar .nav-item { margin: 1px 0; }
+
+        .nav-sidebar .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.6rem 1rem;
+            color: var(--text-muted);
+            text-decoration: none;
+            border-radius: 0;
+            transition: all 0.2s;
+            font-size: 0.85rem;
+            font-weight: 500;
+            position: relative;
+        }
+
+        .nav-sidebar .nav-link:hover {
+            background: rgba(0, 212, 255, 0.07);
+            color: var(--cyber-cyan);
+        }
+
+        .nav-sidebar .nav-link.active {
+            background: rgba(0, 212, 255, 0.12);
+            color: var(--cyber-cyan);
+            border-left: 3px solid var(--cyber-cyan);
+        }
+
+        .nav-sidebar .nav-link .nav-icon {
+            width: 18px;
+            text-align: center;
+            font-size: 0.9rem;
+            flex-shrink: 0;
+        }
+
+        .nav-sidebar .nav-link .badge-count {
+            margin-left: auto;
+            font-size: 0.65rem;
+            padding: 2px 6px;
+        }
+
+        .sidebar-footer {
+            padding: 0.75rem 1rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .sidebar-footer .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.5rem 0;
+            color: #d9534f;
+            text-decoration: none;
+            font-size: 0.85rem;
+            transition: color 0.2s;
+        }
+
+        .sidebar-footer .nav-link:hover { color: #ff6b7a; }
+
+        /* ─── TOP NAVBAR ─── */
+        #topbar {
+            position: fixed;
+            top: 0;
+            left: var(--sidebar-width);
+            right: 0;
+            height: var(--topbar-height);
+            background: rgba(6, 12, 24, 0.95);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 1.5rem;
+            z-index: 1030;
+            backdrop-filter: blur(8px);
+        }
+
+        .topbar-left {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .topbar-system-name {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--cyber-cyan);
+            letter-spacing: 0.5px;
+        }
+
+        .topbar-right {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        #realtime-clock {
+            font-family: 'Courier New', monospace;
+            font-size: 0.82rem;
+            color: var(--cyber-green);
+            letter-spacing: 1px;
+        }
+
+        .user-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(0, 212, 255, 0.08);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            border-radius: 20px;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.8rem;
+            color: var(--text-light);
+        }
+
+        .user-badge .avatar {
+            width: 22px; height: 22px;
+            background: linear-gradient(135deg, var(--cyber-cyan), var(--cyber-green));
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: #000;
+        }
+
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--cyber-green);
+            box-shadow: 0 0 6px var(--cyber-green);
+            animation: blink 2s ease-in-out infinite;
+            flex-shrink: 0;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* ─── MAIN CONTENT ─── */
+        #main-content {
+            margin-left: var(--sidebar-width);
+            margin-top: var(--topbar-height);
+            padding: 1.5rem;
+            min-height: calc(100vh - var(--topbar-height));
+        }
+
+        /* ─── CARDS ─── */
+        .cyber-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 1.25rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .cyber-card:hover {
+            border-color: rgba(0, 212, 255, 0.3);
+            box-shadow: 0 4px 20px rgba(0, 212, 255, 0.07);
+        }
+
+        .cyber-card .card-title {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        /* ─── TABLES ─── */
+        .table-cyber {
+            color: var(--text-light);
+            font-size: 0.83rem;
+        }
+
+        .table-cyber thead th {
+            background: rgba(0, 212, 255, 0.06);
+            color: var(--cyber-cyan);
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            border-color: var(--border-color);
+            padding: 0.6rem 0.75rem;
+        }
+
+        .table-cyber tbody td {
+            border-color: rgba(26, 45, 74, 0.5);
+            vertical-align: middle;
+            padding: 0.55rem 0.75rem;
+        }
+
+        .table-cyber tbody tr:hover {
+            background: rgba(0, 212, 255, 0.04);
+        }
+
+        /* ─── BADGES ─── */
+        .badge-critical { background: #dc3545; color: #fff; }
+        .badge-high     { background: #fd7e14; color: #fff; }
+        .badge-medium   { background: #ffc107; color: #000; }
+        .badge-low      { background: #198754; color: #fff; }
+
+        /* ─── FLASH MESSAGES ─── */
+        .flash-container { margin-bottom: 1rem; }
+
+        .flash-container .alert {
+            border-radius: 8px;
+            border: none;
+            font-size: 0.85rem;
+        }
+
+        .alert-danger  { background: rgba(220,53,69,0.15); color: #ff6b7a; border-left: 3px solid #dc3545; }
+        .alert-success { background: rgba(0,255,136,0.1);  color: #00ff88; border-left: 3px solid #00ff88; }
+        .alert-warning { background: rgba(255,193,7,0.1);  color: #ffc107; border-left: 3px solid #ffc107; }
+        .alert-info    { background: rgba(0,212,255,0.1);  color: #00d4ff; border-left: 3px solid #00d4ff; }
+
+        /* ─── PAGE HEADER ─── */
+        .page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .page-header h1 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #e0e8ff;
+            margin: 0;
+        }
+
+        .page-header .page-icon {
+            color: var(--cyber-cyan);
+            margin-right: 0.5rem;
+        }
+
+        /* ─── FILTER BAR ─── */
+        .filter-bar {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .filter-bar .form-control,
+        .filter-bar .form-select {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border-color);
+            color: var(--text-light);
+            font-size: 0.83rem;
+        }
+
+        .filter-bar .form-control:focus,
+        .filter-bar .form-select:focus {
+            background: rgba(0,212,255,0.05);
+            border-color: var(--cyber-cyan);
+            box-shadow: 0 0 0 2px rgba(0,212,255,0.15);
+            color: #fff;
+            outline: none;
+        }
+
+        .filter-bar .form-select option { background: #0f1626; }
+        .filter-bar .form-label {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 0.3rem;
+        }
+
+        /* ─── BUTTONS ─── */
+        .btn-cyber {
+            background: rgba(0,212,255,0.1);
+            border: 1px solid rgba(0,212,255,0.3);
+            color: var(--cyber-cyan);
+            font-size: 0.82rem;
+            transition: all 0.2s;
+        }
+
+        .btn-cyber:hover {
+            background: rgba(0,212,255,0.2);
+            color: #fff;
+            border-color: var(--cyber-cyan);
+        }
+
+        .btn-cyber-green {
+            background: rgba(0,255,136,0.1);
+            border: 1px solid rgba(0,255,136,0.3);
+            color: var(--cyber-green);
+        }
+
+        .btn-cyber-green:hover {
+            background: rgba(0,255,136,0.2);
+            color: #fff;
+        }
+
+        /* ─── MODALS ─── */
+        .modal-content {
+            background: #0f1626;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            color: var(--text-light);
+        }
+
+        .modal-header {
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .modal-footer { border-top: 1px solid var(--border-color); }
+
+        .modal-title { color: var(--cyber-cyan); font-size: 1rem; }
+
+        .modal .form-control, .modal .form-select {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid var(--border-color);
+            color: var(--text-light);
+        }
+
+        .modal .form-control:focus, .modal .form-select:focus {
+            border-color: var(--cyber-cyan);
+            box-shadow: 0 0 0 2px rgba(0,212,255,0.15);
+            background: rgba(0,212,255,0.05);
+            color: #fff;
+        }
+
+        .modal .form-label {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        /* ─── PAGINATION ─── */
+        .pagination .page-link {
+            background: var(--card-bg);
+            border-color: var(--border-color);
+            color: var(--text-muted);
+            font-size: 0.82rem;
+        }
+
+        .pagination .page-link:hover {
+            background: rgba(0,212,255,0.1);
+            color: var(--cyber-cyan);
+        }
+
+        .pagination .page-item.active .page-link {
+            background: rgba(0,212,255,0.15);
+            border-color: var(--cyber-cyan);
+            color: var(--cyber-cyan);
+        }
+
+        /* ─── RESPONSIVE ─── */
+        .sidebar-toggle {
+            display: none;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 0.25rem;
+        }
+
+        @media (max-width: 768px) {
+            #sidebar { transform: translateX(-100%); }
+            #sidebar.show { transform: translateX(0); }
+            #topbar { left: 0; }
+            #main-content { margin-left: 0; }
+            .sidebar-toggle { display: block; }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: var(--sidebar-bg); }
+        ::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #2a5080; }
+    </style>
+</head>
+<body>
+
+<!-- ══════════════ SIDEBAR ══════════════ -->
+<nav id="sidebar">
+    <div class="sidebar-logo">
+        <i class="fas fa-shield-halved logo-icon"></i>
+        <div class="logo-text">CyberDetect</div>
+        <div class="logo-sub">Attack Detection System</div>
+    </div>
+
+    <div class="sidebar-section">Navigation</div>
+
+    <ul class="nav-sidebar">
+        <li class="nav-item">
+            <a href="/dashboard" class="nav-link {% if request.endpoint and 'dashboard' in request.endpoint %}active{% endif %}">
+                <span class="nav-icon"><i class="fas fa-gauge-high"></i></span>
+                Dashboard
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="/agents" class="nav-link {% if request.endpoint and 'agents' in request.endpoint %}active{% endif %}">
+                <span class="nav-icon"><i class="fas fa-network-wired"></i></span>
+                Agents
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="/events" class="nav-link {% if request.endpoint and 'events' in request.endpoint %}active{% endif %}">
+                <span class="nav-icon"><i class="fas fa-bolt"></i></span>
+                Events
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="/attacks" class="nav-link {% if request.endpoint and 'attacks' in request.endpoint %}active{% endif %}">
+                <span class="nav-icon"><i class="fas fa-skull-crossbones"></i></span>
+                Attacks
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="/alerts" class="nav-link {% if request.endpoint and 'alerts' in request.endpoint %}active{% endif %}">
+                <span class="nav-icon"><i class="fas fa-bell"></i></span>
+                Alerts
+                {% if new_alert_count is defined and new_alert_count > 0 %}
+                <span class="badge bg-danger badge-count">{{ new_alert_count }}</span>
+                {% endif %}
+            </a>
+        </li>
+
+        <div class="sidebar-section">System</div>
+
+        <li class="nav-item">
+            <a href="/logs" class="nav-link {% if request.endpoint and 'logs' in request.endpoint %}active{% endif %}">
+                <span class="nav-icon"><i class="fas fa-file-lines"></i></span>
+                Logs
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="/settings" class="nav-link {% if request.endpoint and 'settings' in request.endpoint %}active{% endif %}">
+                <span class="nav-icon"><i class="fas fa-sliders"></i></span>
+                Settings
+            </a>
+        </li>
+    </ul>
+
+    <div class="sidebar-footer">
+        <a href="/auth/logout" class="nav-link">
+            <i class="fas fa-right-from-bracket"></i>
+            Logout
+        </a>
+    </div>
+</nav>
+
+<!-- ══════════════ TOP NAVBAR ══════════════ -->
+<div id="topbar">
+    <div class="topbar-left">
+        <button class="sidebar-toggle" onclick="toggleSidebar()">
+            <i class="fas fa-bars"></i>
+        </button>
+        <i class="fas fa-shield-halved" style="color:var(--cyber-cyan);"></i>
+        <span class="topbar-system-name">Distributed Cyberattack Detection</span>
+    </div>
+    <div class="topbar-right">
+        <span id="realtime-clock">00:00:00</span>
+        <div class="status-dot"></div>
+        {% if current_user %}
+        <div class="user-badge">
+            <div class="avatar">{{ current_user[0]|upper }}</div>
+            <span>{{ current_user }}</span>
+            <i class="fas fa-chevron-down fa-xs" style="color:var(--text-muted);"></i>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ══════════════ MAIN CONTENT ══════════════ -->
+<div id="main-content">
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-container">
+            {% for category, message in messages %}
+            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show d-flex align-items-center gap-2" role="alert">
+                <i class="fas fa-{{ 'circle-exclamation' if category in ['error','danger'] else 'circle-check' if category == 'success' else 'circle-info' }} flex-shrink-0"></i>
+                <span>{{ message }}</span>
+                <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="alert"></button>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+</div>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    // Real-time clock
+    function updateClock() {
+        const now = new Date();
+        const h = String(now.getHours()).padStart(2, '0');
+        const m = String(now.getMinutes()).padStart(2, '0');
+        const s = String(now.getSeconds()).padStart(2, '0');
+        const el = document.getElementById('realtime-clock');
+        if (el) el.textContent = h + ':' + m + ':' + s;
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    // Sidebar toggle (mobile)
+    function toggleSidebar() {
+        document.getElementById('sidebar').classList.toggle('show');
+    }
+</script>
+
+{% block scripts %}{% endblock %}
+
+</body>
+</html>

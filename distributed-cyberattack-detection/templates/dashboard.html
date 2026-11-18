@@ -1,0 +1,391 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1><i class="fas fa-gauge-high page-icon"></i> Dashboard</h1>
+    <div class="d-flex align-items-center gap-2">
+        <span style="font-size:0.75rem; color:var(--text-muted);">
+            <i class="fas fa-rotate me-1"></i> Auto-refresh: <span id="refresh-countdown">30</span>s
+        </span>
+        <button class="btn btn-sm btn-cyber" onclick="refreshStats()">
+            <i class="fas fa-rotate me-1"></i> Refresh
+        </button>
+    </div>
+</div>
+
+<!-- ── STAT CARDS ROW ── -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-4 col-xl">
+        <div class="cyber-card text-center stat-card" id="card-total-agents">
+            <div class="stat-icon mb-2" style="color:#00d4ff;">
+                <i class="fas fa-network-wired fa-2x"></i>
+            </div>
+            <div class="stat-value" id="stat-total-agents"
+                 style="font-size:2rem; font-weight:800; color:#00d4ff; line-height:1;">
+                {{ stats.total_agents | default(0) }}
+            </div>
+            <div class="card-title mt-1">Total Agents</div>
+        </div>
+    </div>
+
+    <div class="col-6 col-md-4 col-xl">
+        <div class="cyber-card text-center stat-card">
+            <div class="stat-icon mb-2" style="color:#00ff88;">
+                <i class="fas fa-circle-check fa-2x"></i>
+            </div>
+            <div class="stat-value" id="stat-active-agents"
+                 style="font-size:2rem; font-weight:800; color:#00ff88; line-height:1;">
+                {{ stats.active_agents | default(0) }}
+            </div>
+            <div class="card-title mt-1">Active Agents</div>
+        </div>
+    </div>
+
+    <div class="col-6 col-md-4 col-xl">
+        <div class="cyber-card text-center stat-card">
+            <div class="stat-icon mb-2" style="color:#ffc107;">
+                <i class="fas fa-bolt fa-2x"></i>
+            </div>
+            <div class="stat-value" id="stat-total-events"
+                 style="font-size:2rem; font-weight:800; color:#ffc107; line-height:1;">
+                {{ stats.total_events | default(0) }}
+            </div>
+            <div class="card-title mt-1">Total Events</div>
+        </div>
+    </div>
+
+    <div class="col-6 col-md-4 col-xl">
+        <div class="cyber-card text-center stat-card">
+            <div class="stat-icon mb-2" style="color:#fd7e14;">
+                <i class="fas fa-skull-crossbones fa-2x"></i>
+            </div>
+            <div class="stat-value" id="stat-total-attacks"
+                 style="font-size:2rem; font-weight:800; color:#fd7e14; line-height:1;">
+                {{ stats.total_attacks | default(0) }}
+            </div>
+            <div class="card-title mt-1">Total Attacks</div>
+        </div>
+    </div>
+
+    <div class="col-6 col-md-4 col-xl">
+        <div class="cyber-card text-center stat-card">
+            <div class="stat-icon mb-2" style="color:#dc3545;">
+                <i class="fas fa-triangle-exclamation fa-2x"></i>
+            </div>
+            <div class="stat-value" id="stat-critical-alerts"
+                 style="font-size:2rem; font-weight:800; color:#dc3545; line-height:1;">
+                {{ stats.critical_alerts | default(0) }}
+            </div>
+            <div class="card-title mt-1">Critical Alerts</div>
+        </div>
+    </div>
+</div>
+
+<!-- ── CHARTS ROW ── -->
+<div class="row g-3 mb-4">
+    <div class="col-md-5">
+        <div class="cyber-card h-100">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <div class="card-title mb-0">
+                    <i class="fas fa-chart-pie me-1" style="color:var(--cyber-cyan);"></i>
+                    Attack Distribution
+                </div>
+            </div>
+            <div style="max-height:260px; display:flex; align-items:center; justify-content:center;">
+                <canvas id="attackDonutChart" style="max-height:240px;"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-7">
+        <div class="cyber-card h-100">
+            <div class="card-title mb-3">
+                <i class="fas fa-chart-bar me-1" style="color:var(--cyber-cyan);"></i>
+                Events Per Hour (Last 24h)
+            </div>
+            <div style="height:260px;">
+                <canvas id="activityBarChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── EVENTS & ALERTS TABLES ── -->
+<div class="row g-3 mb-4">
+    <div class="col-lg-7">
+        <div class="cyber-card">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <div class="card-title mb-0">
+                    <i class="fas fa-bolt me-1" style="color:var(--cyber-cyan);"></i>
+                    Recent Security Events
+                </div>
+                <a href="/events" class="btn btn-sm btn-cyber">View All</a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-cyber table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Source IP</th>
+                            <th>Dest IP</th>
+                            <th>Proto</th>
+                            <th>Port</th>
+                            <th>Event Type</th>
+                            <th>Agent</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if recent_events %}
+                            {% for ev in recent_events %}
+                            <tr>
+                                <td class="text-nowrap" style="font-size:0.78rem; color:var(--text-muted);">
+                                    {{ ev.timestamp.strftime('%H:%M:%S') if ev.timestamp else '—' }}
+                                </td>
+                                <td><code style="color:#a0c8ff; font-size:0.78rem;">{{ ev.source_ip or '—' }}</code></td>
+                                <td><code style="color:#8ba8cc; font-size:0.78rem;">{{ ev.destination_ip or '—' }}</code></td>
+                                <td>
+                                    <span class="badge" style="background:rgba(0,212,255,0.15); color:#00d4ff; font-size:0.68rem;">
+                                        {{ ev.protocol or '—' }}
+                                    </span>
+                                </td>
+                                <td style="font-size:0.82rem;">{{ ev.destination_port or '—' }}</td>
+                                <td>
+                                    {% set et = ev.event_type or '' %}
+                                    <span class="badge {% if et == 'LOGIN_FAILED' %}bg-danger{% elif et == 'PORT_SCAN' %}bg-warning text-dark{% else %}bg-secondary{% endif %}"
+                                          style="font-size:0.68rem;">
+                                        {{ et or 'NORMAL' }}
+                                    </span>
+                                </td>
+                                <td style="font-size:0.78rem; color:var(--text-muted);">{{ ev.agent_name or '—' }}</td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr><td colspan="7" class="text-center py-4" style="color:var(--text-muted);">
+                                <i class="fas fa-inbox me-2"></i>No events yet
+                            </td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="cyber-card">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <div class="card-title mb-0">
+                    <i class="fas fa-bell me-1" style="color:var(--cyber-cyan);"></i>
+                    Recent Alerts
+                </div>
+                <a href="/alerts" class="btn btn-sm btn-cyber">View All</a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-cyber table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Severity</th>
+                            <th>Message</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if recent_alerts %}
+                            {% for al in recent_alerts %}
+                            <tr>
+                                <td>
+                                    {% set sev = al.severity|upper if al.severity else '' %}
+                                    <span class="badge {% if sev == 'CRITICAL' %}badge-critical{% elif sev == 'HIGH' %}badge-high{% elif sev == 'MEDIUM' %}badge-medium{% else %}badge-low{% endif %}"
+                                          style="font-size:0.68rem;">
+                                        {{ sev or 'LOW' }}
+                                    </span>
+                                </td>
+                                <td style="font-size:0.78rem; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+                                    title="{{ al.message }}">
+                                    {{ al.message or '—' }}
+                                </td>
+                                <td style="font-size:0.75rem; color:var(--text-muted); white-space:nowrap;">
+                                    {{ al.created_at.strftime('%H:%M') if al.created_at else '—' }}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr><td colspan="3" class="text-center py-4" style="color:var(--text-muted);">
+                                <i class="fas fa-check-circle me-2 text-success"></i>No alerts
+                            </td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── AGENT STATUS CARDS ── -->
+<div class="cyber-card">
+    <div class="card-title mb-3">
+        <i class="fas fa-server me-1" style="color:var(--cyber-cyan);"></i>
+        Agent Status
+    </div>
+    <div class="row g-3" id="agent-status-cards">
+        {% if agent_status %}
+            {% for ag in agent_status %}
+            <div class="col-sm-6 col-md-4 col-lg-3">
+                <div class="p-3 rounded" style="background:rgba(255,255,255,0.03); border:1px solid {% if ag.status == 'online' %}rgba(0,255,136,0.25){% else %}rgba(100,120,150,0.2){% endif %};">
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <span class="rounded-circle d-inline-block" style="width:10px;height:10px;background:{% if ag.status == 'online' %}#00ff88;box-shadow:0 0 6px #00ff88{% else %}#555{% endif %};"></span>
+                        <strong style="font-size:0.85rem;">{{ ag.agent_name }}</strong>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--text-muted);">
+                        <i class="fas fa-plug me-1"></i>{{ ag.ip_address or 'Unknown' }}
+                    </div>
+                    <div style="font-size:0.72rem; color:{% if ag.status == 'online' %}#00ff88{% else %}#555{% endif %}; margin-top:0.2rem;">
+                        {{ ag.status|upper }}
+                    </div>
+                    {% if ag.last_seen %}
+                    <div style="font-size:0.68rem; color:#3d5478; margin-top:0.2rem;">
+                        Last: {{ ag.last_seen.strftime('%d/%m %H:%M') }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="col-12 text-center py-3" style="color:var(--text-muted);">
+                <i class="fas fa-server me-2"></i>No agents registered
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── CHART DATA FROM JINJA ──
+const attackDistribution = {{ attack_distribution | tojson | default('[]') }};
+const activityData       = {{ activity_data | tojson | default('[]') }};
+
+// ── CHART DEFAULTS ──
+Chart.defaults.color = '#6c8aad';
+Chart.defaults.borderColor = '#1a2d4a';
+
+// ── DOUGHNUT CHART ──
+const donutCtx = document.getElementById('attackDonutChart');
+if (donutCtx && attackDistribution.length) {
+    const labels = attackDistribution.map(d => d.attack_type);
+    const data   = attackDistribution.map(d => d.count);
+    const colors = ['#00d4ff','#00ff88','#fd7e14','#dc3545','#ffc107','#6610f2','#20c997'];
+
+    new Chart(donutCtx, {
+        type: 'doughnut',
+        data: {
+            labels,
+            datasets: [{
+                data,
+                backgroundColor: colors.slice(0, data.length).map(c => c + '99'),
+                borderColor:     colors.slice(0, data.length),
+                borderWidth: 2,
+                hoverBorderWidth: 3
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            cutout: '65%',
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { padding: 12, font: { size: 11 }, color: '#6c8aad', boxWidth: 12 }
+                },
+                tooltip: {
+                    backgroundColor: '#0f1626',
+                    borderColor: '#1a2d4a',
+                    borderWidth: 1,
+                    titleColor: '#00d4ff',
+                    bodyColor: '#c8d8f0'
+                }
+            }
+        }
+    });
+} else if (donutCtx) {
+    donutCtx.closest('.cyber-card').querySelector('.card-title').insertAdjacentHTML(
+        'afterend', '<p style="color:#3d5478;text-align:center;padding:2rem;font-size:0.82rem;">No attack data yet</p>'
+    );
+}
+
+// ── BAR CHART ──
+const barCtx = document.getElementById('activityBarChart');
+if (barCtx) {
+    let hours, counts;
+    if (activityData.length) {
+        hours  = activityData.map(d => d.hour + 'h');
+        counts = activityData.map(d => d.count);
+    } else {
+        hours  = Array.from({length: 24}, (_, i) => i + 'h');
+        counts = Array.from({length: 24}, () => 0);
+    }
+
+    new Chart(barCtx, {
+        type: 'bar',
+        data: {
+            labels: hours,
+            datasets: [{
+                label: 'Events',
+                data: counts,
+                backgroundColor: 'rgba(0, 212, 255, 0.25)',
+                borderColor:     '#00d4ff',
+                borderWidth: 1,
+                borderRadius: 3,
+                hoverBackgroundColor: 'rgba(0, 212, 255, 0.45)'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#0f1626',
+                    borderColor: '#1a2d4a',
+                    borderWidth: 1,
+                    titleColor: '#00d4ff',
+                    bodyColor: '#c8d8f0'
+                }
+            },
+            scales: {
+                x: { grid: { color: '#1a2d4a' }, ticks: { color: '#6c8aad', font: { size: 10 } } },
+                y: { grid: { color: '#1a2d4a' }, ticks: { color: '#6c8aad', precision: 0 },
+                     beginAtZero: true }
+            }
+        }
+    });
+}
+
+// ── AUTO-REFRESH EVERY 30s ──
+let countdown = 30;
+const countdownEl = document.getElementById('refresh-countdown');
+
+function refreshStats() {
+    fetch('/dashboard/stats')
+        .then(r => r.json())
+        .then(data => {
+            if (data.stats) {
+                document.getElementById('stat-total-agents').textContent  = data.stats.total_agents  ?? 0;
+                document.getElementById('stat-active-agents').textContent = data.stats.active_agents ?? 0;
+                document.getElementById('stat-total-events').textContent  = data.stats.total_events  ?? 0;
+                document.getElementById('stat-total-attacks').textContent = data.stats.total_attacks ?? 0;
+                document.getElementById('stat-critical-alerts').textContent = data.stats.critical_alerts ?? 0;
+            }
+            countdown = 30;
+        })
+        .catch(() => { /* silent fail */ });
+}
+
+setInterval(() => {
+    countdown--;
+    if (countdownEl) countdownEl.textContent = countdown;
+    if (countdown <= 0) refreshStats();
+}, 1000);
+</script>
+{% endblock %}
